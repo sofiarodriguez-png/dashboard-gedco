@@ -44,8 +44,8 @@ try:
     print("[OK] Dashboard publicado en GitHub Pages")
 
     print("\n" + "=" * 80)
-    print("✓ ACTUALIZACIÓN COMPLETADA EXITOSAMENTE")
-    print(f"✓ Dashboard disponible en: https://sofiarodriguez-png.github.io/dashboard-gedco/")
+    print("[OK] ACTUALIZACION COMPLETADA EXITOSAMENTE")
+    print("[OK] Dashboard disponible en: https://sofiarodriguez-png.github.io/dashboard-gedco/")
     print("=" * 80)
 
 except subprocess.TimeoutExpired:
