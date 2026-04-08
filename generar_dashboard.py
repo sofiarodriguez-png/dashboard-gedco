@@ -132,6 +132,10 @@ df_sorted = df.sort_values('periodo', ascending=True)
 # Crear lista de periodos formateados para el selector
 periodos_lista = [{"value": int(p), "label": f"{str(p)[:4]}-{str(p)[4:6]}"} for p in periodos_disponibles]
 
+# Obtener lista de criterios únicos para el filtro
+criterios_unicos = sorted([c for c in df['criterio'].unique() if pd.notna(c) and c != ''])
+criterios_lista = [{"value": c, "label": c} for c in criterios_unicos]
+
 # Preparar datos agregados por periodo para el gráfico
 df_grafico = df.groupby('periodo').agg({
     'monto_originado_vta': 'sum',
@@ -518,6 +522,12 @@ html_content = f"""
                     <option value="CHECKDROP">CHECKDROP</option>
                 </select>
             </div>
+            <div class="filter-group" style="min-width: 300px;">
+                <label>Criterio (múltiple) <span style="font-size: 0.8em; color: #666;">- Ctrl+Click para seleccionar varios</span></label>
+                <select id="filtroCriterio" multiple size="4" onchange="aplicarFiltros()" style="height: auto; min-height: 80px;">
+                    <!-- Se llena dinámicamente -->
+                </select>
+            </div>
             <button class="btn-reset" onclick="resetFiltros()">Resetear</button>
             <button class="btn-definiciones" onclick="mostrarDefiniciones()">📖 Ver Definiciones</button>
         </div>
@@ -538,14 +548,47 @@ html_content = f"""
                             <th class="porcentaje">Cobertura %</th>
                             <th class="porcentaje">CPC %</th>
                             <th class="numero">Gest/Usuario</th>
-                            <th class="numero">Originados Total</th>
-                            <th class="numero">Monto Orig (M)</th>
+                            <th class="porcentaje">Originados Total %</th>
                             <th class="porcentaje">% Monto Orig</th>
                             <th class="porcentaje">% Monto CPC</th>
-                            <th class="porcentaje">% Clientes VTA</th>
+                            <th class="porcentaje">% Monto Atrib VTA</th>
+                            <th class="porcentaje">% Clt Orig VTA/Total Orig</th>
                         </tr>
                     </thead>
                     <tbody id="tablaBody">
+                        <!-- Se llena dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="comparativa-section" style="padding-top: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 class="section-title" style="margin: 0;">Evolución por Criterio</h2>
+                <div class="filter-group" style="margin: 0; min-width: 350px;">
+                    <label>Seleccionar Criterio:</label>
+                    <select id="filtroCriterioTabla" onchange="actualizarTablaPorCriterio()" style="width: 100%;">
+                        <!-- Se llena dinámicamente -->
+                    </select>
+                </div>
+            </div>
+            <div class="tabla-comparativa">
+                <table id="tablaPorCriterio">
+                    <thead>
+                        <tr>
+                            <th>Periodo</th>
+                            <th class="numero">Clientes</th>
+                            <th class="porcentaje">Cobertura %</th>
+                            <th class="porcentaje">CPC %</th>
+                            <th class="numero">Gest/Usuario</th>
+                            <th class="porcentaje">Originados Total %</th>
+                            <th class="porcentaje">% Monto Orig</th>
+                            <th class="porcentaje">% Monto CPC</th>
+                            <th class="porcentaje">% Monto Atrib VTA</th>
+                            <th class="porcentaje">% Clt Orig VTA/Total Orig</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablaCriterioBody">
                         <!-- Se llena dinámicamente -->
                     </tbody>
                 </table>
@@ -661,6 +704,7 @@ html_content = f"""
     <script>
         const datosCompletos = {json.dumps(df_sorted.to_dict('records'))};
         const periodosDisponibles = {json.dumps(periodos_lista)};
+        const criteriosDisponibles = {json.dumps(criterios_lista)};
         const datosGrafico = {json.dumps(datos_grafico)};
         let periodoSeleccionado = {ultimo_periodo};
         let chartMontoAtribuido = null;
@@ -685,12 +729,39 @@ html_content = f"""
                 selectPeriodo.appendChild(option);
             }});
             selectPeriodo.value = periodoSeleccionado;
+
+            // Inicializar filtro de criterio (multi-select)
+            const selectCriterio = document.getElementById('filtroCriterio');
+            criteriosDisponibles.forEach(c => {{
+                const option = document.createElement('option');
+                option.value = c.value;
+                option.text = c.label;
+                option.selected = true; // Por defecto todos seleccionados
+                selectCriterio.appendChild(option);
+            }});
+
+            // Inicializar selector de criterio para tabla
+            const selectCriterioTabla = document.getElementById('filtroCriterioTabla');
+            criteriosDisponibles.forEach(c => {{
+                const option = document.createElement('option');
+                option.value = c.value;
+                option.text = c.label;
+                selectCriterioTabla.appendChild(option);
+            }});
+            // Seleccionar el primer criterio por defecto
+            if (criteriosDisponibles.length > 0) {{
+                selectCriterioTabla.value = criteriosDisponibles[0].value;
+            }}
         }}
 
         function filtrarDatos() {{
             const pais = document.getElementById('filtroPais').value;
             const producto = document.getElementById('filtroProducto').value;
             const segmento = document.getElementById('filtroSegmento').value;
+
+            // Obtener criterios seleccionados (multi-select)
+            const selectCriterio = document.getElementById('filtroCriterio');
+            const criteriosSeleccionados = Array.from(selectCriterio.selectedOptions).map(opt => opt.value);
 
             return datosCompletos.filter(d => {{
                 // Excluir FASTCHAT para MLM
@@ -699,6 +770,10 @@ html_content = f"""
                 if (pais !== 'TODOS' && d.pais !== pais) return false;
                 if (producto !== 'TODOS' && d.tipo_producto !== producto) return false;
                 if (segmento !== 'TODOS' && d.tipo_segmento !== segmento) return false;
+
+                // Filtro de criterio (si hay selección, debe estar en la lista)
+                if (criteriosSeleccionados.length > 0 && !criteriosSeleccionados.includes(d.criterio)) return false;
+
                 return true;
             }});
         }}
@@ -707,6 +782,7 @@ html_content = f"""
             periodoSeleccionado = parseInt(document.getElementById('filtroPeriodo').value);
             actualizarKPIs();
             actualizarTablaComparativa();
+            actualizarTablaPorCriterio();
             actualizarTablaVoiceBot();
             actualizarGraficoCoberturas();
             actualizarGraficoMontoAtribuido();
@@ -717,6 +793,11 @@ html_content = f"""
             document.getElementById('filtroPais').value = 'TODOS';
             document.getElementById('filtroProducto').value = 'TODOS';
             document.getElementById('filtroSegmento').value = 'TODOS';
+
+            // Seleccionar todos los criterios
+            const selectCriterio = document.getElementById('filtroCriterio');
+            Array.from(selectCriterio.options).forEach(opt => opt.selected = true);
+
             aplicarFiltros();
         }}
 
@@ -848,13 +929,16 @@ html_content = f"""
                 const origVTA = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron_vta, 0);
                 const montoTotal = datosPeriodo.reduce((s, d) => s + d.monto_originado_total, 0);
                 const montoCPC = datosPeriodo.reduce((s, d) => s + d.monto_originado_con_cpc, 0);
+                const montoVTA = datosPeriodo.reduce((s, d) => s + d.monto_originado_vta, 0);
 
                 const cobertura = base > 0 ? (gestionados * 100 / base).toFixed(2) : 0;
                 const pctCPC = base > 0 ? (cpc * 100 / base).toFixed(2) : 0;
                 const gestPorUsuario = base > 0 ? (gestiones / base).toFixed(2) : 0;
+                const pctOriginadosTotal = base > 0 ? (originaron * 100 / base).toFixed(2) : 0;
                 const pctOriginacion = propuestas > 0 ? (montoTotal * 100 / propuestas).toFixed(2) : 0;
                 const pctMontoCPC = propuestas > 0 ? (montoCPC * 100 / propuestas).toFixed(2) : 0;
-                const pctCltVTA = base > 0 ? (origVTA * 100 / base).toFixed(2) : 0;
+                const pctMontoAtribVTA = montoTotal > 0 ? (montoVTA * 100 / montoTotal).toFixed(2) : 0;
+                const pctCltOrigVTATotal = originaron > 0 ? (origVTA * 100 / originaron).toFixed(2) : 0;
 
                 const periodoLabel = periodosDisponibles.find(p => p.value === periodo)?.label || '';
                 const esSeleccionado = periodo === periodoSeleccionado ? 'selected' : '';
@@ -866,16 +950,79 @@ html_content = f"""
                         <td class="porcentaje">${{cobertura}}%</td>
                         <td class="porcentaje">${{pctCPC}}%</td>
                         <td class="numero">${{gestPorUsuario}}</td>
-                        <td class="numero">${{originaron.toLocaleString()}}</td>
-                        <td class="numero">${{(montoTotal/1000000).toFixed(1)}}M</td>
+                        <td class="porcentaje">${{pctOriginadosTotal}}%</td>
                         <td class="porcentaje">${{pctOriginacion}}%</td>
                         <td class="porcentaje">${{pctMontoCPC}}%</td>
-                        <td class="porcentaje">${{pctCltVTA}}%</td>
+                        <td class="porcentaje">${{pctMontoAtribVTA}}%</td>
+                        <td class="porcentaje">${{pctCltOrigVTATotal}}%</td>
                     </tr>
                 `;
             }});
 
             document.getElementById('tablaBody').innerHTML = html;
+        }}
+
+        function actualizarTablaPorCriterio() {{
+            const criterioSeleccionado = document.getElementById('filtroCriterioTabla').value;
+            if (!criterioSeleccionado) {{
+                document.getElementById('tablaCriterioBody').innerHTML = '<tr><td colspan="10" style="text-align: center;">Selecciona un criterio</td></tr>';
+                return;
+            }}
+
+            // Aplicar filtros actuales y luego filtrar por criterio específico
+            const datos = filtrarDatos().filter(d => d.criterio === criterioSeleccionado);
+
+            if (datos.length === 0) {{
+                document.getElementById('tablaCriterioBody').innerHTML = '<tr><td colspan="10" style="text-align: center;">No hay datos para este criterio</td></tr>';
+                return;
+            }}
+
+            const periodosOrdenados = [...new Set(datos.map(d => d.periodo))].sort((a, b) => b - a);
+
+            let html = '';
+            periodosOrdenados.forEach(periodo => {{
+                const datosPeriodo = datos.filter(d => d.periodo === periodo);
+
+                const base = datosPeriodo.reduce((s, d) => s + d.clientes_asignados, 0);
+                const gestionados = datosPeriodo.reduce((s, d) => s + d.clientes_con_gestion, 0);
+                const cpc = datosPeriodo.reduce((s, d) => s + d.clientes_con_cpc, 0);
+                const gestiones = datosPeriodo.reduce((s, d) => s + d.gestiones_totales, 0);
+                const propuestas = datosPeriodo.reduce((s, d) => s + d.monto_propuestas, 0);
+                const originaron = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron, 0);
+                const origVTA = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron_vta, 0);
+                const montoTotal = datosPeriodo.reduce((s, d) => s + d.monto_originado_total, 0);
+                const montoCPC = datosPeriodo.reduce((s, d) => s + d.monto_originado_con_cpc, 0);
+                const montoVTA = datosPeriodo.reduce((s, d) => s + d.monto_originado_vta, 0);
+
+                const cobertura = base > 0 ? (gestionados * 100 / base).toFixed(2) : 0;
+                const pctCPC = base > 0 ? (cpc * 100 / base).toFixed(2) : 0;
+                const gestPorUsuario = base > 0 ? (gestiones / base).toFixed(2) : 0;
+                const pctOriginadosTotal = base > 0 ? (originaron * 100 / base).toFixed(2) : 0;
+                const pctOriginacion = propuestas > 0 ? (montoTotal * 100 / propuestas).toFixed(2) : 0;
+                const pctMontoCPC = propuestas > 0 ? (montoCPC * 100 / propuestas).toFixed(2) : 0;
+                const pctMontoAtribVTA = montoTotal > 0 ? (montoVTA * 100 / montoTotal).toFixed(2) : 0;
+                const pctCltOrigVTATotal = originaron > 0 ? (origVTA * 100 / originaron).toFixed(2) : 0;
+
+                const periodoLabel = periodosDisponibles.find(p => p.value === periodo)?.label || '';
+                const esSeleccionado = periodo === periodoSeleccionado ? 'selected' : '';
+
+                html += `
+                    <tr class="${{esSeleccionado}}">
+                        <td class="periodo-col">${{periodoLabel}}</td>
+                        <td class="numero">${{base.toLocaleString()}}</td>
+                        <td class="porcentaje">${{cobertura}}%</td>
+                        <td class="porcentaje">${{pctCPC}}%</td>
+                        <td class="numero">${{gestPorUsuario}}</td>
+                        <td class="porcentaje">${{pctOriginadosTotal}}%</td>
+                        <td class="porcentaje">${{pctOriginacion}}%</td>
+                        <td class="porcentaje">${{pctMontoCPC}}%</td>
+                        <td class="porcentaje">${{pctMontoAtribVTA}}%</td>
+                        <td class="porcentaje">${{pctCltOrigVTATotal}}%</td>
+                    </tr>
+                `;
+            }});
+
+            document.getElementById('tablaCriterioBody').innerHTML = html;
         }}
 
         function actualizarTablaVoiceBot() {{
@@ -1159,6 +1306,7 @@ html_content = f"""
         inicializarFiltros();
         actualizarKPIs();
         actualizarTablaComparativa();
+        actualizarTablaPorCriterio();
         actualizarTablaVoiceBot();
         actualizarGraficoCoberturas();
         actualizarGraficoMontoAtribuido();
