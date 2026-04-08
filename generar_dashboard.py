@@ -136,6 +136,88 @@ periodos_lista = [{"value": int(p), "label": f"{str(p)[:4]}-{str(p)[4:6]}"} for 
 criterios_unicos = sorted([c for c in df['criterio'].unique() if pd.notna(c) and c != ''])
 criterios_lista = [{"value": c, "label": c} for c in criterios_unicos]
 
+# ============================================================================
+# MERCHANT MLM - Query y procesamiento
+# ============================================================================
+print("\n[INFO] Consultando datos de Merchant MLM...")
+
+query_merchant = """
+SELECT
+    SIT_SITE_ID AS pais,
+    COL_MONTH_ID AS periodo,
+    COL_LAST_CALL_CENTER_ASSIGNED AS agencia,
+    COL_ASSIGNED_CRITERIA_DESC AS criterio,
+
+    -- Conteos de clientes
+    COUNT(DISTINCT CUS_CUST_ID) AS clientes_asignados,
+    COUNT(DISTINCT CASE WHEN COUNT_GESTIONES_USER > 0 THEN CUS_CUST_ID END) AS clientes_con_gestion,
+    COUNT(DISTINCT CASE WHEN USUARIO_CPC = 1 THEN CUS_CUST_ID END) AS clientes_con_cpc,
+    COUNT(DISTINCT CASE WHEN USUARIO_OPTIN = 1 THEN CUS_CUST_ID END) AS clientes_con_opt,
+
+    -- Gestiones
+    SUM(COUNT_GESTIONES_USER) AS gestiones_totales,
+
+    -- Propuestas
+    SUM(OFERTA_MAX_TOTAL) AS monto_propuestas,
+
+    -- Originación Total
+    COUNT(DISTINCT CASE WHEN FLAG_ORIGINO = 1 THEN CUS_CUST_ID END) AS usuarios_originaron,
+    SUM(CANTIDAD_CREDITOS) AS cantidad_creditos,
+    SUM(MONTO_ORIGINADO) AS monto_originado_total,
+
+    -- Originación VTA
+    COUNT(DISTINCT CASE WHEN FLAG_ORIGINO_VTA = 1 THEN CUS_CUST_ID END) AS usuarios_originaron_vta,
+    SUM(MONTO_ORIGINADO_USUARIO_VTA) AS monto_originado_vta
+
+FROM `meli-bi-data.SBOX_COLLECTIONSDA.TLV_MERCHANT_BASE_FINAL_CUSTID`
+WHERE
+    SIT_SITE_ID = 'MLM'
+    AND COL_LAST_CALL_CENTER_ASSIGNED = 'GEDCO'
+    AND COL_MONTH_ID >= CAST(FORMAT_DATE('%Y%m', DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)) AS INT64)
+GROUP BY pais, periodo, agencia, criterio
+ORDER BY periodo DESC
+"""
+
+df_merchant = cliente.query(query_merchant).to_dataframe()
+print(f"[OK] {len(df_merchant)} registros Merchant obtenidos")
+
+if not df_merchant.empty:
+    # Procesar datos Merchant
+    df_merchant = df_merchant.fillna(0)
+
+    numeric_cols_merchant = ['clientes_asignados', 'clientes_con_gestion', 'clientes_con_cpc', 'clientes_con_opt',
+                             'gestiones_totales', 'monto_propuestas', 'usuarios_originaron', 'cantidad_creditos',
+                             'monto_originado_total', 'usuarios_originaron_vta', 'monto_originado_vta']
+    for col in numeric_cols_merchant:
+        df_merchant[col] = pd.to_numeric(df_merchant[col], errors='coerce').fillna(0)
+
+    # Formato periodo
+    df_merchant['periodo_str'] = df_merchant['periodo'].astype(str)
+    df_merchant['año'] = df_merchant['periodo_str'].str[:4]
+    df_merchant['mes'] = df_merchant['periodo_str'].str[4:6]
+    df_merchant['periodo_formato'] = df_merchant['año'] + '-' + df_merchant['mes']
+
+    df_merchant = df_merchant.sort_values('periodo', ascending=False)
+
+    # Obtener listas para Merchant
+    periodos_merchant = sorted(df_merchant['periodo'].unique(), reverse=True)
+    ultimo_periodo_merchant = periodos_merchant[0] if len(periodos_merchant) > 0 else None
+    periodos_merchant_lista = [{"value": int(p), "label": f"{str(p)[:4]}-{str(p)[4:6]}"} for p in periodos_merchant]
+    criterios_merchant_unicos = sorted([c for c in df_merchant['criterio'].unique() if pd.notna(c) and c != ''])
+    criterios_merchant_lista = [{"value": c, "label": c} for c in criterios_merchant_unicos]
+
+    # Preparar datos para JavaScript
+    df_merchant_sorted = df_merchant.sort_values('periodo', ascending=True)
+
+    print(f"[INFO] Merchant - Periodos: {len(periodos_merchant)}, Criterios: {len(criterios_merchant_unicos)}")
+else:
+    # Si no hay datos de Merchant, crear estructuras vacías
+    df_merchant_sorted = pd.DataFrame()
+    periodos_merchant_lista = []
+    criterios_merchant_lista = []
+    ultimo_periodo_merchant = None
+    print("[WARN] No hay datos de Merchant disponibles")
+
 # Preparar datos agregados por periodo para el gráfico
 df_grafico = df.groupby('periodo').agg({
     'monto_originado_vta': 'sum',
@@ -844,6 +926,7 @@ html_content = f"""
     </div>
 
     <script>
+        // ===== CONSUMER DATA =====
         const datosCompletos = {json.dumps(df_sorted.to_dict('records'))};
         const periodosDisponibles = {json.dumps(periodos_lista)};
         const criteriosDisponibles = {json.dumps(criterios_lista)};
@@ -851,6 +934,13 @@ html_content = f"""
         let periodoSeleccionado = {ultimo_periodo};
         let chartMontoAtribuido = null;
         let chartCoberturas = null;
+
+        // ===== MERCHANT DATA =====
+        const datosMerchant = {json.dumps(df_merchant_sorted.to_dict('records') if not df_merchant_sorted.empty else [])};
+        const periodosMerchantDisponibles = {json.dumps(periodos_merchant_lista)};
+        const criteriosMerchantDisponibles = {json.dumps(criterios_merchant_lista)};
+        let periodoMerchantSeleccionado = {ultimo_periodo_merchant if ultimo_periodo_merchant else 'null'};
+        let chartMerchantCoberturas = null;
 
         function mostrarDefiniciones() {{
             document.getElementById('modalDefiniciones').classList.add('show');
@@ -1659,6 +1749,688 @@ html_content = f"""
         actualizarTablaVoiceBot();
         actualizarGraficoCoberturas();
         actualizarGraficoMontoAtribuido();
+    </script>
+
+    <!-- ========================================================================== -->
+    <!-- MERCHANT MLM SECTION -->
+    <!-- ========================================================================== -->
+
+    <div style="margin: 60px 0; border-top: 5px solid #333;"></div>
+
+    <div class="header" style="background: linear-gradient(135deg, #FF6B00 0%, #D95000 100%);">
+        <h1>🏪 MERCHANT (MLM) - GEDCO</h1>
+        <div class="header-meta">Dashboard actualizado: {timestamp}</div>
+    </div>
+
+    <div class="filters-section">
+        <div class="filter-group">
+            <label>Periodo</label>
+            <select id="filtroPeriodoMerchant" class="periodo" onchange="aplicarFiltrosMerchant()">
+                <!-- Se llena dinámicamente -->
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Producto</label>
+            <select id="filtroProductoMerchant" onchange="filtrarCriteriosAutomaticamenteMerchant()">
+                <option value="TODOS">Todos</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Segmento</label>
+            <select id="filtroSegmentoMerchant" onchange="filtrarCriteriosAutomaticamenteMerchant()">
+                <option value="TODOS">Todos</option>
+            </select>
+        </div>
+        <div class="filter-group criterio-container">
+            <label>🔍 Criterio <span id="criterioCountMerchant" class="criterio-count"></span></label>
+            <input type="text" id="criterioBuscadorMerchant" class="criterio-search" placeholder="Buscar criterio..." oninput="filtrarCriteriosListaMerchant()">
+            <div class="criterio-list">
+                <div class="criterio-buttons">
+                    <button class="criterio-btn" onclick="seleccionarTodosCriteriosMerchant()">✓ Todos</button>
+                    <button class="criterio-btn" onclick="deseleccionarTodosCriteriosMerchant()">✗ Ninguno</button>
+                </div>
+                <div id="criterioListaMerchant">
+                    <!-- Se llena dinámicamente con checkboxes -->
+                </div>
+            </div>
+        </div>
+        <button class="btn-reset" onclick="resetFiltrosMerchant()">Resetear</button>
+    </div>
+
+    <div class="kpis-section">
+        <h2 id="tituloKPIsMerchant" class="section-title">Métricas Principales Merchant</h2>
+        <div id="kpisContainerMerchant" class="kpis-grid">
+            <!-- Se llena dinámicamente -->
+        </div>
+    </div>
+
+    <div style="padding: 0 40px;">
+        <div class="comparativa-section">
+            <h2 class="section-title">Evolución Histórica por Mes - Merchant</h2>
+            <div class="tabla-comparativa">
+                <table id="tablaComparativaMerchant">
+                    <thead>
+                        <tr>
+                            <th>Periodo</th>
+                            <th class="numero">Clientes</th>
+                            <th class="porcentaje">Cobertura %</th>
+                            <th class="porcentaje">CPC %</th>
+                            <th class="numero">Gest/Usuario</th>
+                            <th class="porcentaje">Originados Total %</th>
+                            <th class="porcentaje">% Monto Orig</th>
+                            <th class="porcentaje">% Clientes VTA</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablaBodyMerchant">
+                        <!-- Se llena dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="comparativa-section" style="padding-top: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; gap: 20px;">
+                <h2 class="section-title" style="margin: 0;">Evolución por Criterio - Merchant</h2>
+                <div class="filter-group criterio-selector-tabla" style="margin: 0;">
+                    <label>🔍 Seleccionar Criterio:</label>
+                    <input type="text" id="criterioBuscadorTablaMerchant" class="criterio-search" placeholder="Buscar criterio..." oninput="filtrarCriteriosTablaMerchant()">
+                    <div class="criterio-list" id="criterioListaTablaMerchant">
+                        <!-- Se llena dinámicamente con radio buttons -->
+                    </div>
+                </div>
+            </div>
+            <div class="tabla-comparativa">
+                <table id="tablaPorCriterioMerchant">
+                    <thead>
+                        <tr>
+                            <th>Periodo</th>
+                            <th class="numero">Clientes</th>
+                            <th class="porcentaje">Cobertura %</th>
+                            <th class="porcentaje">CPC %</th>
+                            <th class="numero">Gest/Usuario</th>
+                            <th class="porcentaje">Originados Total %</th>
+                            <th class="porcentaje">% Monto Orig</th>
+                            <th class="porcentaje">% Clientes VTA</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tablaCriterioBodyMerchant">
+                        <!-- Se llena dinámicamente -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="graficos-section">
+            <h2 class="section-title">Evolución de Coberturas - Merchant</h2>
+            <div class="chart-container">
+                <canvas id="chartCoberturasMerchant"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ========================================================================
+        // MERCHANT JAVASCRIPT FUNCTIONS
+        // ========================================================================
+
+        if (datosMerchant.length > 0) {{
+
+            // Inicializar filtros Merchant
+            function inicializarFiltrosMerchant() {{
+                // Periodos
+                const selectPeriodo = document.getElementById('filtroPeriodoMerchant');
+                periodosMerchantDisponibles.forEach(p => {{
+                    const option = document.createElement('option');
+                    option.value = p.value;
+                    option.text = p.label;
+                    selectPeriodo.appendChild(option);
+                }});
+                if (periodoMerchantSeleccionado) {{
+                    selectPeriodo.value = periodoMerchantSeleccionado;
+                }}
+
+                // Obtener productos y segmentos únicos
+                const productosSet = new Set();
+                const segmentosSet = new Set();
+                datosMerchant.forEach(d => {{
+                    if (d.criterio) {{
+                        const partes = d.criterio.split('_');
+                        partes.forEach(p => {{
+                            if (p && p !== 'MLM' && p !== 'GEDCO') {{
+                                productosSet.add(p);
+                                segmentosSet.add(p);
+                            }}
+                        }});
+                    }}
+                }});
+
+                // Llenar filtro de productos (simplificado)
+                const selectProducto = document.getElementById('filtroProductoMerchant');
+                Array.from(productosSet).sort().forEach(p => {{
+                    const option = document.createElement('option');
+                    option.value = p;
+                    option.text = p;
+                    selectProducto.appendChild(option);
+                }});
+
+                // Llenar filtro de segmentos
+                const selectSegmento = document.getElementById('filtroSegmentoMerchant');
+                Array.from(segmentosSet).sort().forEach(s => {{
+                    const option = document.createElement('option');
+                    option.value = s;
+                    option.text = s;
+                    selectSegmento.appendChild(option);
+                }});
+
+                // Criterios con checkboxes
+                const criterioLista = document.getElementById('criterioListaMerchant');
+                criteriosMerchantDisponibles.forEach((c, index) => {{
+                    const div = document.createElement('div');
+                    div.className = 'criterio-item';
+                    div.dataset.criterio = c.value.toLowerCase();
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.id = `criterioMerchant-${{index}}`;
+                    checkbox.value = c.value;
+                    checkbox.checked = true;
+                    checkbox.onchange = aplicarFiltrosMerchant;
+
+                    const label = document.createElement('label');
+                    label.htmlFor = `criterioMerchant-${{index}}`;
+                    label.textContent = c.label;
+
+                    div.appendChild(checkbox);
+                    div.appendChild(label);
+                    div.onclick = function(e) {{
+                        if (e.target.tagName !== 'INPUT') {{
+                            checkbox.checked = !checkbox.checked;
+                            aplicarFiltrosMerchant();
+                        }}
+                    }};
+
+                    criterioLista.appendChild(div);
+                }});
+
+                // Selector de criterio para tabla
+                const criterioListaTabla = document.getElementById('criterioListaTablaMerchant');
+                criteriosMerchantDisponibles.forEach((c, index) => {{
+                    const div = document.createElement('div');
+                    div.className = 'criterio-item';
+                    div.dataset.criterio = c.value.toLowerCase();
+
+                    const radio = document.createElement('input');
+                    radio.type = 'radio';
+                    radio.name = 'criterioTablaMerchant';
+                    radio.id = `criterioTablaMerchant-${{index}}`;
+                    radio.value = c.value;
+                    radio.onchange = actualizarTablaPorCriterioMerchant;
+
+                    if (index === 0) {{
+                        radio.checked = true;
+                        div.classList.add('selected');
+                    }}
+
+                    const label = document.createElement('label');
+                    label.htmlFor = `criterioTablaMerchant-${{index}}`;
+                    label.textContent = c.label;
+
+                    div.appendChild(radio);
+                    div.appendChild(label);
+                    div.onclick = function(e) {{
+                        if (e.target.tagName !== 'INPUT') {{
+                            radio.checked = true;
+                            document.querySelectorAll('#criterioListaTablaMerchant .criterio-item').forEach(item => item.classList.remove('selected'));
+                            div.classList.add('selected');
+                            actualizarTablaPorCriterioMerchant();
+                        }}
+                    }};
+
+                    criterioListaTabla.appendChild(div);
+                }});
+            }}
+
+            function filtrarDatosMerchant() {{
+                const producto = document.getElementById('filtroProductoMerchant').value;
+                const segmento = document.getElementById('filtroSegmentoMerchant').value;
+                const checkboxes = document.querySelectorAll('#criterioListaMerchant input[type="checkbox"]:checked');
+                const criteriosSeleccionados = Array.from(checkboxes).map(cb => cb.value);
+
+                return datosMerchant.filter(d => {{
+                    if (producto !== 'TODOS') {{
+                        const palabras = d.criterio.toLowerCase().split('_');
+                        if (!palabras.includes(producto.toLowerCase())) return false;
+                    }}
+                    if (segmento !== 'TODOS') {{
+                        const palabras = d.criterio.toLowerCase().split('_');
+                        if (!palabras.includes(segmento.toLowerCase())) return false;
+                    }}
+                    if (criteriosSeleccionados.length > 0 && !criteriosSeleccionados.includes(d.criterio)) return false;
+                    return true;
+                }});
+            }}
+
+            function aplicarFiltrosMerchant() {{
+                periodoMerchantSeleccionado = parseInt(document.getElementById('filtroPeriodoMerchant').value);
+
+                const checkboxes = document.querySelectorAll('#criterioListaMerchant input[type="checkbox"]');
+                const seleccionados = Array.from(checkboxes).filter(cb => cb.checked).length;
+                const total = checkboxes.length;
+                document.getElementById('criterioCountMerchant').textContent = `${{seleccionados}}/${{total}}`;
+
+                actualizarKPIsMerchant();
+                actualizarTablaComparativaMerchant();
+                actualizarTablaPorCriterioMerchant();
+                actualizarGraficoCoberturasMerchant();
+            }}
+
+            function resetFiltrosMerchant() {{
+                document.getElementById('filtroPeriodoMerchant').value = periodosMerchantDisponibles[0].value;
+                document.getElementById('filtroProductoMerchant').value = 'TODOS';
+                document.getElementById('filtroSegmentoMerchant').value = 'TODOS';
+                document.getElementById('criterioBuscadorMerchant').value = '';
+                const checkboxes = document.querySelectorAll('#criterioListaMerchant input[type="checkbox"]');
+                checkboxes.forEach(cb => cb.checked = true);
+                filtrarCriteriosListaMerchant();
+                aplicarFiltrosMerchant();
+            }}
+
+            function filtrarCriteriosListaMerchant() {{
+                const searchText = document.getElementById('criterioBuscadorMerchant').value.toLowerCase();
+                const items = document.querySelectorAll('#criterioListaMerchant .criterio-item');
+                items.forEach(item => {{
+                    const criterioText = item.dataset.criterio;
+                    item.style.display = criterioText.includes(searchText) ? 'flex' : 'none';
+                }});
+            }}
+
+            function filtrarCriteriosTablaMerchant() {{
+                const searchText = document.getElementById('criterioBuscadorTablaMerchant').value.toLowerCase();
+                const items = document.querySelectorAll('#criterioListaTablaMerchant .criterio-item');
+                items.forEach(item => {{
+                    const criterioText = item.dataset.criterio;
+                    item.style.display = criterioText.includes(searchText) ? 'flex' : 'none';
+                }});
+            }}
+
+            function seleccionarTodosCriteriosMerchant() {{
+                const checkboxes = document.querySelectorAll('#criterioListaMerchant input[type="checkbox"]');
+                checkboxes.forEach(cb => cb.checked = true);
+                aplicarFiltrosMerchant();
+            }}
+
+            function deseleccionarTodosCriteriosMerchant() {{
+                const checkboxes = document.querySelectorAll('#criterioListaMerchant input[type="checkbox"]');
+                checkboxes.forEach(cb => cb.checked = false);
+                aplicarFiltrosMerchant();
+            }}
+
+            function filtrarCriteriosAutomaticamenteMerchant() {{
+                const producto = document.getElementById('filtroProductoMerchant').value;
+                const segmento = document.getElementById('filtroSegmentoMerchant').value;
+
+                if (producto === 'TODOS' && segmento === 'TODOS') {{
+                    seleccionarTodosCriteriosMerchant();
+                    return;
+                }}
+
+                const terminos = [];
+                if (producto !== 'TODOS') terminos.push(producto.toLowerCase());
+                if (segmento !== 'TODOS') terminos.push(segmento.toLowerCase());
+
+                const checkboxes = document.querySelectorAll('#criterioListaMerchant input[type="checkbox"]');
+                checkboxes.forEach(cb => {{
+                    const criterioText = cb.value.toLowerCase();
+                    const palabrasCriterio = criterioText.split('_');
+                    const contieneTodasLasPalabras = terminos.every(termino => palabrasCriterio.includes(termino));
+                    cb.checked = contieneTodasLasPalabras;
+                }});
+
+                aplicarFiltrosMerchant();
+            }}
+
+            function actualizarKPIsMerchant() {{
+                const datos = filtrarDatosMerchant();
+                const datosActual = datos.filter(d => d.periodo === periodoMerchantSeleccionado);
+
+                const periodosOrdenados = [...new Set(datos.map(d => d.periodo))].sort((a, b) => b - a);
+                const indexActual = periodosOrdenados.indexOf(periodoMerchantSeleccionado);
+                const periodoAnterior = indexActual < periodosOrdenados.length - 1 ? periodosOrdenados[indexActual + 1] : null;
+                const datosAnterior = periodoAnterior ? datos.filter(d => d.periodo === periodoAnterior) : [];
+
+                const periodoLabel = periodosMerchantDisponibles.find(p => p.value === periodoMerchantSeleccionado)?.label || '';
+                document.getElementById('tituloKPIsMerchant').textContent = `Métricas Principales Merchant - ${{periodoLabel}}`;
+
+                const base = datosActual.reduce((s, d) => s + d.clientes_asignados, 0);
+                const gestionados = datosActual.reduce((s, d) => s + d.clientes_con_gestion, 0);
+                const cpc = datosActual.reduce((s, d) => s + d.clientes_con_cpc, 0);
+                const gestiones = datosActual.reduce((s, d) => s + d.gestiones_totales, 0);
+                const propuestas = datosActual.reduce((s, d) => s + d.monto_propuestas, 0);
+                const originaron = datosActual.reduce((s, d) => s + d.usuarios_originaron, 0);
+                const origVTA = datosActual.reduce((s, d) => s + d.usuarios_originaron_vta, 0);
+                const montoTotal = datosActual.reduce((s, d) => s + d.monto_originado_total, 0);
+                const montoVTA = datosActual.reduce((s, d) => s + d.monto_originado_vta, 0);
+
+                const baseAnt = datosAnterior.reduce((s, d) => s + d.clientes_asignados, 0);
+                const gestionadosAnt = datosAnterior.reduce((s, d) => s + d.clientes_con_gestion, 0);
+                const cpcAnt = datosAnterior.reduce((s, d) => s + d.clientes_con_cpc, 0);
+                const originaronAnt = datosAnterior.reduce((s, d) => s + d.usuarios_originaron, 0);
+
+                const cobertura = base > 0 ? (gestionados * 100 / base).toFixed(2) : 0;
+                const pctCPC = base > 0 ? (cpc * 100 / base).toFixed(2) : 0;
+                const gestPorUsuario = base > 0 ? (gestiones / base).toFixed(2) : 0;
+                const pctCltOrig = base > 0 ? (originaron * 100 / base).toFixed(2) : 0;
+                const pctOriginacion = propuestas > 0 ? (montoTotal * 100 / propuestas).toFixed(2) : 0;
+                const pctCltVTA = originaron > 0 ? (origVTA * 100 / originaron).toFixed(2) : 0;
+
+                const coberturaAnt = baseAnt > 0 ? (gestionadosAnt * 100 / baseAnt).toFixed(2) : 0;
+                const pctCPCAnt = baseAnt > 0 ? (cpcAnt * 100 / baseAnt).toFixed(2) : 0;
+                const pctCltOrigAnt = baseAnt > 0 ? (originaronAnt * 100 / baseAnt).toFixed(2) : 0;
+
+                const varCobertura = cobertura && coberturaAnt ? {{
+                    diff: (cobertura - coberturaAnt).toFixed(2),
+                    pct: coberturaAnt > 0 ? (((cobertura - coberturaAnt) / coberturaAnt) * 100).toFixed(1) : 0,
+                    clase: (cobertura - coberturaAnt) >= 0 ? 'positive' : 'negative'
+                }} : null;
+
+                const varCPC = pctCPC && pctCPCAnt ? {{
+                    diff: (pctCPC - pctCPCAnt).toFixed(2),
+                    pct: pctCPCAnt > 0 ? (((pctCPC - pctCPCAnt) / pctCPCAnt) * 100).toFixed(1) : 0,
+                    clase: (pctCPC - pctCPCAnt) >= 0 ? 'positive' : 'negative'
+                }} : null;
+
+                const varCltOrig = pctCltOrig && pctCltOrigAnt ? {{
+                    diff: (pctCltOrig - pctCltOrigAnt).toFixed(2),
+                    pct: pctCltOrigAnt > 0 ? (((pctCltOrig - pctCltOrigAnt) / pctCltOrigAnt) * 100).toFixed(1) : 0,
+                    clase: (pctCltOrig - pctCltOrigAnt) >= 0 ? 'positive' : 'negative'
+                }} : null;
+
+                document.getElementById('kpisContainerMerchant').innerHTML = `
+                    <div class="kpi-card">
+                        <div class="kpi-label">Clientes Asignados</div>
+                        <div class="kpi-value">${{base.toLocaleString()}}</div>
+                        <div class="kpi-subtitle">Merchant MLM</div>
+                    </div>
+                    <div class="kpi-card success">
+                        <div class="kpi-label">Cobertura Total</div>
+                        <div class="kpi-value">${{cobertura}}%</div>
+                        <div class="kpi-subtitle">${{gestionados.toLocaleString()}} clientes con gestion</div>
+                        ${{varCobertura && periodoAnterior ? `<div class="kpi-variation ${{varCobertura.clase}}">${{varCobertura.diff}} pp (${{varCobertura.pct}}%) vs mes anterior</div>` : ''}}
+                    </div>
+                    <div class="kpi-card success">
+                        <div class="kpi-label">Cobertura CPC</div>
+                        <div class="kpi-value">${{pctCPC}}%</div>
+                        <div class="kpi-subtitle">${{cpc.toLocaleString()}} clientes con CPC</div>
+                        ${{varCPC && periodoAnterior ? `<div class="kpi-variation ${{varCPC.clase}}">${{varCPC.diff}} pp (${{varCPC.pct}}%) vs mes anterior</div>` : ''}}
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Gestiones por Usuario</div>
+                        <div class="kpi-value">${{gestPorUsuario}}</div>
+                        <div class="kpi-subtitle">${{gestiones.toLocaleString()}} gestiones totales</div>
+                    </div>
+                    <div class="kpi-card warning">
+                        <div class="kpi-label">% Clientes Únicos Originados</div>
+                        <div class="kpi-value">${{pctCltOrig}}%</div>
+                        <div class="kpi-subtitle">${{originaron.toLocaleString()}} usuarios originaron</div>
+                        ${{varCltOrig && periodoAnterior ? `<div class="kpi-variation ${{varCltOrig.clase}}">${{varCltOrig.diff}} pp (${{varCltOrig.pct}}%) vs mes anterior</div>` : ''}}
+                    </div>
+                    <div class="kpi-card warning">
+                        <div class="kpi-label">% Monto Originación</div>
+                        <div class="kpi-value">${{pctOriginacion}}%</div>
+                        <div class="kpi-subtitle">$$${{(montoTotal/1000000).toFixed(1)}}M de $$${{(propuestas/1000000).toFixed(1)}}M</div>
+                    </div>
+                    <div class="kpi-card warning">
+                        <div class="kpi-label">% Clientes VTA</div>
+                        <div class="kpi-value">${{pctCltVTA}}%</div>
+                        <div class="kpi-subtitle">${{origVTA.toLocaleString()}} de ${{originaron.toLocaleString()}} originados</div>
+                    </div>
+                `;
+            }}
+
+            function actualizarTablaComparativaMerchant() {{
+                const datos = filtrarDatosMerchant();
+                const periodosOrdenados = [...new Set(datos.map(d => d.periodo))].sort((a, b) => b - a);
+
+                let html = '';
+                periodosOrdenados.forEach(periodo => {{
+                    const datosPeriodo = datos.filter(d => d.periodo === periodo);
+
+                    const base = datosPeriodo.reduce((s, d) => s + d.clientes_asignados, 0);
+                    const gestionados = datosPeriodo.reduce((s, d) => s + d.clientes_con_gestion, 0);
+                    const cpc = datosPeriodo.reduce((s, d) => s + d.clientes_con_cpc, 0);
+                    const gestiones = datosPeriodo.reduce((s, d) => s + d.gestiones_totales, 0);
+                    const propuestas = datosPeriodo.reduce((s, d) => s + d.monto_propuestas, 0);
+                    const originaron = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron, 0);
+                    const origVTA = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron_vta, 0);
+                    const montoTotal = datosPeriodo.reduce((s, d) => s + d.monto_originado_total, 0);
+
+                    const cobertura = base > 0 ? (gestionados * 100 / base).toFixed(2) : 0;
+                    const pctCPC = base > 0 ? (cpc * 100 / base).toFixed(2) : 0;
+                    const gestPorUsuario = base > 0 ? (gestiones / base).toFixed(2) : 0;
+                    const pctOriginadosTotal = base > 0 ? (originaron * 100 / base).toFixed(2) : 0;
+                    const pctOriginacion = propuestas > 0 ? (montoTotal * 100 / propuestas).toFixed(2) : 0;
+                    const pctCltVTATotal = originaron > 0 ? (origVTA * 100 / originaron).toFixed(2) : 0;
+
+                    const periodoLabel = periodosMerchantDisponibles.find(p => p.value === periodo)?.label || '';
+                    const esSeleccionado = periodo === periodoMerchantSeleccionado ? 'selected' : '';
+
+                    html += `
+                        <tr class="${{esSeleccionado}}">
+                            <td class="periodo-col">${{periodoLabel}}</td>
+                            <td class="numero">${{base.toLocaleString()}}</td>
+                            <td class="porcentaje">${{cobertura}}%</td>
+                            <td class="porcentaje">${{pctCPC}}%</td>
+                            <td class="numero">${{gestPorUsuario}}</td>
+                            <td class="porcentaje">${{pctOriginadosTotal}}%</td>
+                            <td class="porcentaje">${{pctOriginacion}}%</td>
+                            <td class="porcentaje">${{pctCltVTATotal}}%</td>
+                        </tr>
+                    `;
+                }});
+
+                document.getElementById('tablaBodyMerchant').innerHTML = html;
+            }}
+
+            function actualizarTablaPorCriterioMerchant() {{
+                const radioSeleccionado = document.querySelector('input[name="criterioTablaMerchant"]:checked');
+                if (!radioSeleccionado) {{
+                    document.getElementById('tablaCriterioBodyMerchant').innerHTML = '<tr><td colspan="8" style="text-align: center;">Selecciona un criterio</td></tr>';
+                    return;
+                }}
+                const criterioSeleccionado = radioSeleccionado.value;
+
+                document.querySelectorAll('#criterioListaTablaMerchant .criterio-item').forEach(item => {{
+                    const radio = item.querySelector('input[type="radio"]');
+                    if (radio && radio.checked) {{
+                        item.classList.add('selected');
+                    }} else {{
+                        item.classList.remove('selected');
+                    }}
+                }});
+
+                const producto = document.getElementById('filtroProductoMerchant').value;
+                const segmento = document.getElementById('filtroSegmentoMerchant').value;
+
+                const datos = datosMerchant.filter(d => {{
+                    if (producto !== 'TODOS') {{
+                        const palabras = d.criterio.toLowerCase().split('_');
+                        if (!palabras.includes(producto.toLowerCase())) return false;
+                    }}
+                    if (segmento !== 'TODOS') {{
+                        const palabras = d.criterio.toLowerCase().split('_');
+                        if (!palabras.includes(segmento.toLowerCase())) return false;
+                    }}
+                    if (d.criterio !== criterioSeleccionado) return false;
+                    return true;
+                }});
+
+                if (datos.length === 0) {{
+                    document.getElementById('tablaCriterioBodyMerchant').innerHTML = '<tr><td colspan="8" style="text-align: center;">No hay datos para este criterio</td></tr>';
+                    return;
+                }}
+
+                const periodosOrdenados = [...new Set(datos.map(d => d.periodo))].sort((a, b) => b - a);
+
+                let html = '';
+                periodosOrdenados.forEach(periodo => {{
+                    const datosPeriodo = datos.filter(d => d.periodo === periodo);
+
+                    const base = datosPeriodo.reduce((s, d) => s + d.clientes_asignados, 0);
+                    const gestionados = datosPeriodo.reduce((s, d) => s + d.clientes_con_gestion, 0);
+                    const cpc = datosPeriodo.reduce((s, d) => s + d.clientes_con_cpc, 0);
+                    const gestiones = datosPeriodo.reduce((s, d) => s + d.gestiones_totales, 0);
+                    const propuestas = datosPeriodo.reduce((s, d) => s + d.monto_propuestas, 0);
+                    const originaron = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron, 0);
+                    const origVTA = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron_vta, 0);
+                    const montoTotal = datosPeriodo.reduce((s, d) => s + d.monto_originado_total, 0);
+
+                    const cobertura = base > 0 ? (gestionados * 100 / base).toFixed(2) : 0;
+                    const pctCPC = base > 0 ? (cpc * 100 / base).toFixed(2) : 0;
+                    const gestPorUsuario = base > 0 ? (gestiones / base).toFixed(2) : 0;
+                    const pctOriginadosTotal = base > 0 ? (originaron * 100 / base).toFixed(2) : 0;
+                    const pctOriginacion = propuestas > 0 ? (montoTotal * 100 / propuestas).toFixed(2) : 0;
+                    const pctCltVTATotal = originaron > 0 ? (origVTA * 100 / originaron).toFixed(2) : 0;
+
+                    const periodoLabel = periodosMerchantDisponibles.find(p => p.value === periodo)?.label || '';
+                    const esSeleccionado = periodo === periodoMerchantSeleccionado ? 'selected' : '';
+
+                    html += `
+                        <tr class="${{esSeleccionado}}">
+                            <td class="periodo-col">${{periodoLabel}}</td>
+                            <td class="numero">${{base.toLocaleString()}}</td>
+                            <td class="porcentaje">${{cobertura}}%</td>
+                            <td class="porcentaje">${{pctCPC}}%</td>
+                            <td class="numero">${{gestPorUsuario}}</td>
+                            <td class="porcentaje">${{pctOriginadosTotal}}%</td>
+                            <td class="porcentaje">${{pctOriginacion}}%</td>
+                            <td class="porcentaje">${{pctCltVTATotal}}%</td>
+                        </tr>
+                    `;
+                }});
+
+                document.getElementById('tablaCriterioBodyMerchant').innerHTML = html;
+            }}
+
+            function actualizarGraficoCoberturasMerchant() {{
+                const datos = filtrarDatosMerchant();
+
+                const datosPorPeriodo = {{}};
+                datos.forEach(d => {{
+                    if (!datosPorPeriodo[d.periodo]) {{
+                        datosPorPeriodo[d.periodo] = {{ base: 0, gestionados: 0, cpc: 0 }};
+                    }}
+                    datosPorPeriodo[d.periodo].base += d.clientes_asignados;
+                    datosPorPeriodo[d.periodo].gestionados += d.clientes_con_gestion;
+                    datosPorPeriodo[d.periodo].cpc += d.clientes_con_cpc;
+                }});
+
+                const periodos = Object.keys(datosPorPeriodo).sort();
+                const labels = periodos.map(p => {{
+                    const label = periodosMerchantDisponibles.find(x => x.value === parseInt(p))?.label || p;
+                    return label;
+                }});
+
+                const coberturaTotal = periodos.map(p => {{
+                    const datos = datosPorPeriodo[p];
+                    return datos.base > 0 ? (datos.gestionados * 100 / datos.base).toFixed(2) : 0;
+                }});
+
+                const coberturaCPC = periodos.map(p => {{
+                    const datos = datosPorPeriodo[p];
+                    return datos.base > 0 ? (datos.cpc * 100 / datos.base).toFixed(2) : 0;
+                }});
+
+                if (chartMerchantCoberturas) {{
+                    chartMerchantCoberturas.destroy();
+                }}
+
+                const ctx = document.getElementById('chartCoberturasMerchant').getContext('2d');
+                chartMerchantCoberturas = new Chart(ctx, {{
+                    type: 'line',
+                    data: {{
+                        labels: labels,
+                        datasets: [
+                            {{
+                                label: 'Cobertura Total (%)',
+                                data: coberturaTotal,
+                                borderColor: '#FF6B00',
+                                backgroundColor: 'rgba(255, 107, 0, 0.1)',
+                                tension: 0.4,
+                                fill: true,
+                                pointRadius: 6,
+                                pointHoverRadius: 8
+                            }},
+                            {{
+                                label: 'Cobertura CPC (%)',
+                                data: coberturaCPC,
+                                borderColor: '#009EE3',
+                                backgroundColor: 'rgba(0, 158, 227, 0.1)',
+                                tension: 0.4,
+                                fill: true,
+                                pointRadius: 6,
+                                pointHoverRadius: 8
+                            }}
+                        ]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{
+                                display: true,
+                                position: 'top'
+                            }},
+                            tooltip: {{
+                                callbacks: {{
+                                    label: function(context) {{
+                                        return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
+                                    }}
+                                }}
+                            }}
+                        }},
+                        layout: {{
+                            padding: {{
+                                top: 30
+                            }}
+                        }},
+                        scales: {{
+                            y: {{
+                                beginAtZero: true,
+                                ticks: {{
+                                    callback: function(value) {{
+                                        return value + '%';
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }},
+                    plugins: [{{
+                        afterDatasetsDraw: function(chart) {{
+                            const ctx = chart.ctx;
+                            chart.data.datasets.forEach((dataset, i) => {{
+                                const meta = chart.getDatasetMeta(i);
+                                if (!meta.hidden) {{
+                                    meta.data.forEach((element, index) => {{
+                                        ctx.fillStyle = dataset.borderColor;
+                                        ctx.font = 'bold 11px Arial';
+                                        ctx.textAlign = 'center';
+                                        ctx.textBaseline = 'bottom';
+                                        const data = dataset.data[index];
+                                        ctx.fillText(data + '%', element.x, element.y - 8);
+                                    }});
+                                }}
+                            }});
+                        }}
+                    }}]
+                }});
+            }}
+
+            // Inicializar Merchant
+            inicializarFiltrosMerchant();
+            aplicarFiltrosMerchant();
+        }} else {{
+            document.querySelector('.header:last-of-type').innerHTML += '<p style="color: #ff0; margin-top: 10px;">No hay datos disponibles para Merchant MLM</p>';
+        }}
     </script>
 </body>
 </html>
