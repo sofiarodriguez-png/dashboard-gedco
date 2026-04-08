@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Archivos temporales
+*.log
+*.tmp
+repo_config.json
+
+# Archivos de dashboard antiguos (solo queremos index.html)
+dashboard_gedco_final_v2_*.html
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
