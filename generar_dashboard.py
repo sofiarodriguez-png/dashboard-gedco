@@ -919,11 +919,17 @@ html_content = f"""
             if (producto !== 'TODOS') terminos.push(producto.toLowerCase());
             if (segmento !== 'TODOS') terminos.push(segmento.toLowerCase());
 
-            // Marcar solo los criterios que contienen TODOS los términos
+            // Marcar solo los criterios que contienen TODOS los términos como PALABRAS COMPLETAS
             const checkboxes = document.querySelectorAll('#criterioLista input[type="checkbox"]');
             checkboxes.forEach(cb => {{
                 const criterioText = cb.value.toLowerCase();
-                const contieneTodasLasPalabras = terminos.every(termino => criterioText.includes(termino));
+                // Dividir el criterio en palabras usando underscore como separador
+                const palabrasCriterio = criterioText.split('_');
+
+                // Verificar que TODOS los términos existan como palabras completas
+                const contieneTodasLasPalabras = terminos.every(termino =>
+                    palabrasCriterio.includes(termino)
+                );
                 cb.checked = contieneTodasLasPalabras;
             }});
 
@@ -1248,8 +1254,26 @@ html_content = f"""
                 }}
             }});
 
-            // Aplicar filtros actuales y luego filtrar por criterio específico
-            const datos = filtrarDatos().filter(d => d.criterio === criterioSeleccionado);
+            // Aplicar solo filtros de País, Producto y Segmento (NO el filtro de criterios múltiple)
+            // para que siempre muestre datos del criterio seleccionado
+            const pais = document.getElementById('filtroPais').value;
+            const producto = document.getElementById('filtroProducto').value;
+            const segmento = document.getElementById('filtroSegmento').value;
+
+            const datos = datosCompletos.filter(d => {{
+                // Excluir FASTCHAT para MLM
+                if (d.pais === 'MLM' && d.tipo_producto === 'FASTCHAT') return false;
+
+                // Aplicar filtros generales
+                if (pais !== 'TODOS' && d.pais !== pais) return false;
+                if (producto !== 'TODOS' && d.tipo_producto !== producto) return false;
+                if (segmento !== 'TODOS' && d.tipo_segmento !== segmento) return false;
+
+                // Filtrar por el criterio específico seleccionado
+                if (d.criterio !== criterioSeleccionado) return false;
+
+                return true;
+            }});
 
             if (datos.length === 0) {{
                 document.getElementById('tablaCriterioBody').innerHTML = '<tr><td colspan="10" style="text-align: center;">No hay datos para este criterio</td></tr>';
