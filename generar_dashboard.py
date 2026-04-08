@@ -81,7 +81,7 @@ WHERE
         (SIT_SITE_ID = 'MLM' AND COL_LAST_CALL_CENTER_ASSIGNED IN ('GEDCO', 'GEDCO_MLM'))
     )
     AND LISTA_GESTION = 1
-    AND COL_MONTH_ID >= CAST(FORMAT_DATE('%Y%m', DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH)) AS INT64)
+    AND COL_MONTH_ID >= CAST(FORMAT_DATE('%Y%m', DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH)) AS INT64)
 
 GROUP BY pais, periodo, agencia, criterio, tipo_producto, tipo_segmento
 ORDER BY periodo DESC, pais
@@ -1487,8 +1487,8 @@ html_content = f"""
                             backgroundColor: 'rgba(0, 166, 80, 0.1)',
                             tension: 0.4,
                             fill: true,
-                            pointRadius: 5,
-                            pointHoverRadius: 7
+                            pointRadius: 6,
+                            pointHoverRadius: 8
                         }},
                         {{
                             label: 'Cobertura CPC (%)',
@@ -1497,8 +1497,8 @@ html_content = f"""
                             backgroundColor: 'rgba(0, 158, 227, 0.1)',
                             tension: 0.4,
                             fill: true,
-                            pointRadius: 5,
-                            pointHoverRadius: 7
+                            pointRadius: 6,
+                            pointHoverRadius: 8
                         }}
                     ]
                 }},
@@ -1518,6 +1518,11 @@ html_content = f"""
                             }}
                         }}
                     }},
+                    layout: {{
+                        padding: {{
+                            top: 30
+                        }}
+                    }},
                     scales: {{
                         y: {{
                             beginAtZero: true,
@@ -1528,7 +1533,25 @@ html_content = f"""
                             }}
                         }}
                     }}
-                }}
+                }},
+                plugins: [{{
+                    afterDatasetsDraw: function(chart) {{
+                        const ctx = chart.ctx;
+                        chart.data.datasets.forEach((dataset, i) => {{
+                            const meta = chart.getDatasetMeta(i);
+                            if (!meta.hidden) {{
+                                meta.data.forEach((element, index) => {{
+                                    ctx.fillStyle = dataset.borderColor;
+                                    ctx.font = 'bold 11px Arial';
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'bottom';
+                                    const data = dataset.data[index];
+                                    ctx.fillText(data + '%', element.x, element.y - 8);
+                                }});
+                            }}
+                        }});
+                    }}
+                }}]
             }});
         }}
 
@@ -1572,8 +1595,8 @@ html_content = f"""
                         backgroundColor: 'rgba(255, 122, 0, 0.1)',
                         tension: 0.4,
                         fill: true,
-                        pointRadius: 5,
-                        pointHoverRadius: 7
+                        pointRadius: 6,
+                        pointHoverRadius: 8
                     }}]
                 }},
                 options: {{
@@ -1592,6 +1615,11 @@ html_content = f"""
                             }}
                         }}
                     }},
+                    layout: {{
+                        padding: {{
+                            top: 30
+                        }}
+                    }},
                     scales: {{
                         y: {{
                             beginAtZero: true,
@@ -1602,7 +1630,25 @@ html_content = f"""
                             }}
                         }}
                     }}
-                }}
+                }},
+                plugins: [{{
+                    afterDatasetsDraw: function(chart) {{
+                        const ctx = chart.ctx;
+                        chart.data.datasets.forEach((dataset, i) => {{
+                            const meta = chart.getDatasetMeta(i);
+                            if (!meta.hidden) {{
+                                meta.data.forEach((element, index) => {{
+                                    ctx.fillStyle = dataset.borderColor;
+                                    ctx.font = 'bold 11px Arial';
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'bottom';
+                                    const data = dataset.data[index];
+                                    ctx.fillText(data + '%', element.x, element.y - 8);
+                                }});
+                            }}
+                        }});
+                    }}
+                }}]
             }});
         }}
 
