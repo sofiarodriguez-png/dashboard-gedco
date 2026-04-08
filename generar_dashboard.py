@@ -1819,6 +1819,7 @@ html_content = f"""
                             <th class="porcentaje">Originados Total %</th>
                             <th class="porcentaje">% Monto Orig</th>
                             <th class="porcentaje">% Clientes VTA</th>
+                            <th class="porcentaje">% Monto Atrib VTA</th>
                         </tr>
                     </thead>
                     <tbody id="tablaBodyMerchant">
@@ -1851,6 +1852,7 @@ html_content = f"""
                             <th class="porcentaje">Originados Total %</th>
                             <th class="porcentaje">% Monto Orig</th>
                             <th class="porcentaje">% Clientes VTA</th>
+                            <th class="porcentaje">% Monto Atrib VTA</th>
                         </tr>
                     </thead>
                     <tbody id="tablaCriterioBodyMerchant">
@@ -2122,6 +2124,7 @@ html_content = f"""
                 const pctCltOrig = base > 0 ? (originaron * 100 / base).toFixed(2) : 0;
                 const pctOriginacion = propuestas > 0 ? (montoTotal * 100 / propuestas).toFixed(2) : 0;
                 const pctCltVTA = originaron > 0 ? (origVTA * 100 / originaron).toFixed(2) : 0;
+                const montoAtribuido = montoTotal > 0 ? (montoVTA * 100 / montoTotal).toFixed(2) : 0;
 
                 const coberturaAnt = baseAnt > 0 ? (gestionadosAnt * 100 / baseAnt).toFixed(2) : 0;
                 const pctCPCAnt = baseAnt > 0 ? (cpcAnt * 100 / baseAnt).toFixed(2) : 0;
@@ -2184,6 +2187,11 @@ html_content = f"""
                         <div class="kpi-value">${{pctCltVTA}}%</div>
                         <div class="kpi-subtitle">${{origVTA.toLocaleString()}} de ${{originaron.toLocaleString()}} originados</div>
                     </div>
+                    <div class="kpi-card warning">
+                        <div class="kpi-label">% Monto Atribuido VTA</div>
+                        <div class="kpi-value">${{montoAtribuido}}%</div>
+                        <div class="kpi-subtitle">$$${{(montoVTA/1000000).toFixed(1)}}M de $$${{(montoTotal/1000000).toFixed(1)}}M</div>
+                    </div>
                 `;
             }}
 
@@ -2203,6 +2211,7 @@ html_content = f"""
                     const originaron = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron, 0);
                     const origVTA = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron_vta, 0);
                     const montoTotal = datosPeriodo.reduce((s, d) => s + d.monto_originado_total, 0);
+                    const montoVTA = datosPeriodo.reduce((s, d) => s + d.monto_originado_vta, 0);
 
                     const cobertura = base > 0 ? (gestionados * 100 / base).toFixed(2) : 0;
                     const pctCPC = base > 0 ? (cpc * 100 / base).toFixed(2) : 0;
@@ -2210,6 +2219,7 @@ html_content = f"""
                     const pctOriginadosTotal = base > 0 ? (originaron * 100 / base).toFixed(2) : 0;
                     const pctOriginacion = propuestas > 0 ? (montoTotal * 100 / propuestas).toFixed(2) : 0;
                     const pctCltVTATotal = originaron > 0 ? (origVTA * 100 / originaron).toFixed(2) : 0;
+                    const pctMontoAtribVTA = montoTotal > 0 ? (montoVTA * 100 / montoTotal).toFixed(2) : 0;
 
                     const periodoLabel = periodosMerchantDisponibles.find(p => p.value === periodo)?.label || '';
                     const esSeleccionado = periodo === periodoMerchantSeleccionado ? 'selected' : '';
@@ -2224,6 +2234,7 @@ html_content = f"""
                             <td class="porcentaje">${{pctOriginadosTotal}}%</td>
                             <td class="porcentaje">${{pctOriginacion}}%</td>
                             <td class="porcentaje">${{pctCltVTATotal}}%</td>
+                            <td class="porcentaje">${{pctMontoAtribVTA}}%</td>
                         </tr>
                     `;
                 }});
@@ -2234,7 +2245,7 @@ html_content = f"""
             function actualizarTablaPorCriterioMerchant() {{
                 const radioSeleccionado = document.querySelector('input[name="criterioTablaMerchant"]:checked');
                 if (!radioSeleccionado) {{
-                    document.getElementById('tablaCriterioBodyMerchant').innerHTML = '<tr><td colspan="8" style="text-align: center;">Selecciona un criterio</td></tr>';
+                    document.getElementById('tablaCriterioBodyMerchant').innerHTML = '<tr><td colspan="9" style="text-align: center;">Selecciona un criterio</td></tr>';
                     return;
                 }}
                 const criterioSeleccionado = radioSeleccionado.value;
@@ -2265,7 +2276,7 @@ html_content = f"""
                 }});
 
                 if (datos.length === 0) {{
-                    document.getElementById('tablaCriterioBodyMerchant').innerHTML = '<tr><td colspan="8" style="text-align: center;">No hay datos para este criterio</td></tr>';
+                    document.getElementById('tablaCriterioBodyMerchant').innerHTML = '<tr><td colspan="9" style="text-align: center;">No hay datos para este criterio</td></tr>';
                     return;
                 }}
 
@@ -2283,6 +2294,7 @@ html_content = f"""
                     const originaron = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron, 0);
                     const origVTA = datosPeriodo.reduce((s, d) => s + d.usuarios_originaron_vta, 0);
                     const montoTotal = datosPeriodo.reduce((s, d) => s + d.monto_originado_total, 0);
+                    const montoVTA = datosPeriodo.reduce((s, d) => s + d.monto_originado_vta, 0);
 
                     const cobertura = base > 0 ? (gestionados * 100 / base).toFixed(2) : 0;
                     const pctCPC = base > 0 ? (cpc * 100 / base).toFixed(2) : 0;
@@ -2290,6 +2302,7 @@ html_content = f"""
                     const pctOriginadosTotal = base > 0 ? (originaron * 100 / base).toFixed(2) : 0;
                     const pctOriginacion = propuestas > 0 ? (montoTotal * 100 / propuestas).toFixed(2) : 0;
                     const pctCltVTATotal = originaron > 0 ? (origVTA * 100 / originaron).toFixed(2) : 0;
+                    const pctMontoAtribVTA = montoTotal > 0 ? (montoVTA * 100 / montoTotal).toFixed(2) : 0;
 
                     const periodoLabel = periodosMerchantDisponibles.find(p => p.value === periodo)?.label || '';
                     const esSeleccionado = periodo === periodoMerchantSeleccionado ? 'selected' : '';
@@ -2304,6 +2317,7 @@ html_content = f"""
                             <td class="porcentaje">${{pctOriginadosTotal}}%</td>
                             <td class="porcentaje">${{pctOriginacion}}%</td>
                             <td class="porcentaje">${{pctCltVTATotal}}%</td>
+                            <td class="porcentaje">${{pctMontoAtribVTA}}%</td>
                         </tr>
                     `;
                 }});
