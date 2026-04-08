@@ -214,6 +214,67 @@ html_content = f"""
             background: #E3F2FD;
         }}
 
+        /* Buscador de criterios mejorado */
+        .criterio-container {{
+            position: relative;
+            min-width: 320px;
+            max-width: 400px;
+        }}
+        .criterio-search {{
+            width: 100%;
+            padding: 8px 12px;
+            border: 2px solid var(--color-border);
+            border-radius: 6px 6px 0 0;
+            font-size: 14px;
+            box-sizing: border-box;
+        }}
+        .criterio-search:focus {{
+            outline: none;
+            border-color: var(--color-primary);
+        }}
+        .criterio-list {{
+            border: 2px solid var(--color-border);
+            border-top: none;
+            border-radius: 0 0 6px 6px;
+            background: white;
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 8px;
+        }}
+        .criterio-item {{
+            padding: 6px 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }}
+        .criterio-item:hover {{
+            background: #f5f5f5;
+        }}
+        .criterio-item input[type="checkbox"] {{
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }}
+        .criterio-item label {{
+            cursor: pointer;
+            flex: 1;
+            font-size: 13px;
+            margin: 0;
+            text-transform: none;
+            color: var(--color-text);
+            font-weight: normal;
+        }}
+        .criterio-count {{
+            font-size: 11px;
+            color: var(--color-text-light);
+            padding: 2px 6px;
+            background: #f0f0f0;
+            border-radius: 3px;
+        }}
+
         .btn-reset {{
             padding: 8px 16px;
             background: var(--color-danger);
@@ -522,11 +583,12 @@ html_content = f"""
                     <option value="CHECKDROP">CHECKDROP</option>
                 </select>
             </div>
-            <div class="filter-group" style="min-width: 300px;">
-                <label>Criterio (múltiple) <span style="font-size: 0.8em; color: #666;">- Ctrl+Click para seleccionar varios</span></label>
-                <select id="filtroCriterio" multiple size="4" onchange="aplicarFiltros()" style="height: auto; min-height: 80px;">
-                    <!-- Se llena dinámicamente -->
-                </select>
+            <div class="filter-group criterio-container">
+                <label>🔍 Criterio <span id="criterioCount" class="criterio-count"></span></label>
+                <input type="text" id="criterioBuscador" class="criterio-search" placeholder="Buscar criterio (ej: PL, REPEATS, etc.)" oninput="filtrarCriteriosLista()">
+                <div class="criterio-list" id="criterioLista">
+                    <!-- Se llena dinámicamente con checkboxes -->
+                </div>
             </div>
             <button class="btn-reset" onclick="resetFiltros()">Resetear</button>
             <button class="btn-definiciones" onclick="mostrarDefiniciones()">📖 Ver Definiciones</button>
@@ -720,6 +782,20 @@ html_content = f"""
             }}
         }}
 
+        function filtrarCriteriosLista() {{
+            const searchText = document.getElementById('criterioBuscador').value.toLowerCase();
+            const items = document.querySelectorAll('.criterio-item');
+
+            items.forEach(item => {{
+                const criterioText = item.dataset.criterio;
+                if (criterioText.includes(searchText)) {{
+                    item.style.display = 'flex';
+                }} else {{
+                    item.style.display = 'none';
+                }}
+            }});
+        }}
+
         function inicializarFiltros() {{
             const selectPeriodo = document.getElementById('filtroPeriodo');
             periodosDisponibles.forEach(p => {{
@@ -730,14 +806,34 @@ html_content = f"""
             }});
             selectPeriodo.value = periodoSeleccionado;
 
-            // Inicializar filtro de criterio (multi-select)
-            const selectCriterio = document.getElementById('filtroCriterio');
-            criteriosDisponibles.forEach(c => {{
-                const option = document.createElement('option');
-                option.value = c.value;
-                option.text = c.label;
-                option.selected = true; // Por defecto todos seleccionados
-                selectCriterio.appendChild(option);
+            // Inicializar filtro de criterio con checkboxes
+            const criterioLista = document.getElementById('criterioLista');
+            criteriosDisponibles.forEach((c, index) => {{
+                const div = document.createElement('div');
+                div.className = 'criterio-item';
+                div.dataset.criterio = c.value.toLowerCase();
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `criterio-${{index}}`;
+                checkbox.value = c.value;
+                checkbox.checked = true; // Por defecto todos seleccionados
+                checkbox.onchange = aplicarFiltros;
+
+                const label = document.createElement('label');
+                label.htmlFor = `criterio-${{index}}`;
+                label.textContent = c.label;
+
+                div.appendChild(checkbox);
+                div.appendChild(label);
+                div.onclick = function(e) {{
+                    if (e.target.tagName !== 'INPUT') {{
+                        checkbox.checked = !checkbox.checked;
+                        aplicarFiltros();
+                    }}
+                }};
+
+                criterioLista.appendChild(div);
             }});
 
             // Inicializar selector de criterio para tabla
@@ -759,9 +855,9 @@ html_content = f"""
             const producto = document.getElementById('filtroProducto').value;
             const segmento = document.getElementById('filtroSegmento').value;
 
-            // Obtener criterios seleccionados (multi-select)
-            const selectCriterio = document.getElementById('filtroCriterio');
-            const criteriosSeleccionados = Array.from(selectCriterio.selectedOptions).map(opt => opt.value);
+            // Obtener criterios seleccionados (checkboxes)
+            const checkboxes = document.querySelectorAll('#criterioLista input[type="checkbox"]:checked');
+            const criteriosSeleccionados = Array.from(checkboxes).map(cb => cb.value);
 
             return datosCompletos.filter(d => {{
                 // Excluir FASTCHAT para MLM
@@ -780,6 +876,13 @@ html_content = f"""
 
         function aplicarFiltros() {{
             periodoSeleccionado = parseInt(document.getElementById('filtroPeriodo').value);
+
+            // Actualizar contador de criterios seleccionados
+            const checkboxes = document.querySelectorAll('#criterioLista input[type="checkbox"]');
+            const seleccionados = Array.from(checkboxes).filter(cb => cb.checked).length;
+            const total = checkboxes.length;
+            document.getElementById('criterioCount').textContent = `${{seleccionados}}/${{total}}`;
+
             actualizarKPIs();
             actualizarTablaComparativa();
             actualizarTablaPorCriterio();
@@ -794,9 +897,13 @@ html_content = f"""
             document.getElementById('filtroProducto').value = 'TODOS';
             document.getElementById('filtroSegmento').value = 'TODOS';
 
-            // Seleccionar todos los criterios
-            const selectCriterio = document.getElementById('filtroCriterio');
-            Array.from(selectCriterio.options).forEach(opt => opt.selected = true);
+            // Limpiar buscador y seleccionar todos los criterios
+            document.getElementById('criterioBuscador').value = '';
+            const checkboxes = document.querySelectorAll('#criterioLista input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = true);
+
+            // Mostrar todos los items
+            filtrarCriteriosLista();
 
             aplicarFiltros();
         }}
