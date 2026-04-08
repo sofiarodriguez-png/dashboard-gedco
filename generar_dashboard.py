@@ -274,6 +274,26 @@ html_content = f"""
             background: #f0f0f0;
             border-radius: 3px;
         }}
+        .criterio-buttons {{
+            display: flex;
+            gap: 5px;
+            padding: 5px 8px;
+            border-bottom: 1px solid #e0e0e0;
+        }}
+        .criterio-btn {{
+            padding: 4px 10px;
+            font-size: 11px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }}
+        .criterio-btn:hover {{
+            background: var(--color-primary);
+            color: white;
+            border-color: var(--color-primary);
+        }}
 
         .btn-reset {{
             padding: 8px 16px;
@@ -558,7 +578,7 @@ html_content = f"""
             </div>
             <div class="filter-group">
                 <label>Pais</label>
-                <select id="filtroPais" onchange="aplicarFiltros()">
+                <select id="filtroPais" onchange="filtrarCriteriosAutomaticamente()">
                     <option value="TODOS">Todos</option>
                     <option value="MLA">Argentina (MLA)</option>
                     <option value="MLM">Mexico (MLM)</option>
@@ -566,7 +586,7 @@ html_content = f"""
             </div>
             <div class="filter-group">
                 <label>Producto</label>
-                <select id="filtroProducto" onchange="aplicarFiltros()">
+                <select id="filtroProducto" onchange="filtrarCriteriosAutomaticamente()">
                     <option value="TODOS">Todos</option>
                     <option value="PL">PL</option>
                     <option value="BNPL">BNPL</option>
@@ -576,7 +596,7 @@ html_content = f"""
             </div>
             <div class="filter-group">
                 <label>Segmento</label>
-                <select id="filtroSegmento" onchange="aplicarFiltros()">
+                <select id="filtroSegmento" onchange="filtrarCriteriosAutomaticamente()">
                     <option value="TODOS">Todos</option>
                     <option value="REPEATS">REPEATS</option>
                     <option value="ACTIVATION">ACTIVATION</option>
@@ -586,8 +606,14 @@ html_content = f"""
             <div class="filter-group criterio-container">
                 <label>🔍 Criterio <span id="criterioCount" class="criterio-count"></span></label>
                 <input type="text" id="criterioBuscador" class="criterio-search" placeholder="Buscar criterio (ej: PL, REPEATS, etc.)" oninput="filtrarCriteriosLista()">
-                <div class="criterio-list" id="criterioLista">
-                    <!-- Se llena dinámicamente con checkboxes -->
+                <div class="criterio-list">
+                    <div class="criterio-buttons">
+                        <button class="criterio-btn" onclick="seleccionarTodosCriterios()">✓ Todos</button>
+                        <button class="criterio-btn" onclick="deseleccionarTodosCriterios()">✗ Ninguno</button>
+                    </div>
+                    <div id="criterioLista">
+                        <!-- Se llena dinámicamente con checkboxes -->
+                    </div>
                 </div>
             </div>
             <button class="btn-reset" onclick="resetFiltros()">Resetear</button>
@@ -794,6 +820,46 @@ html_content = f"""
                     item.style.display = 'none';
                 }}
             }});
+        }}
+
+        function seleccionarTodosCriterios() {{
+            const checkboxes = document.querySelectorAll('#criterioLista input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = true);
+            aplicarFiltros();
+        }}
+
+        function deseleccionarTodosCriterios() {{
+            const checkboxes = document.querySelectorAll('#criterioLista input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = false);
+            aplicarFiltros();
+        }}
+
+        function filtrarCriteriosAutomaticamente() {{
+            const pais = document.getElementById('filtroPais').value;
+            const producto = document.getElementById('filtroProducto').value;
+            const segmento = document.getElementById('filtroSegmento').value;
+
+            // Si todos están en "TODOS", marcar todos los criterios
+            if (pais === 'TODOS' && producto === 'TODOS' && segmento === 'TODOS') {{
+                seleccionarTodosCriterios();
+                return;
+            }}
+
+            // Construir términos de búsqueda
+            const terminos = [];
+            if (pais !== 'TODOS') terminos.push(pais.toLowerCase());
+            if (producto !== 'TODOS') terminos.push(producto.toLowerCase());
+            if (segmento !== 'TODOS') terminos.push(segmento.toLowerCase());
+
+            // Marcar solo los criterios que contienen TODOS los términos
+            const checkboxes = document.querySelectorAll('#criterioLista input[type="checkbox"]');
+            checkboxes.forEach(cb => {{
+                const criterioText = cb.value.toLowerCase();
+                const contieneTodasLasPalabras = terminos.every(termino => criterioText.includes(termino));
+                cb.checked = contieneTodasLasPalabras;
+            }});
+
+            aplicarFiltros();
         }}
 
         function inicializarFiltros() {{
