@@ -1191,6 +1191,8 @@ html_content = f"""
             const cpcAnt = datosAnterior.reduce((s, d) => s + d.clientes_con_cpc, 0);
             const originaronAnt = datosAnterior.reduce((s, d) => s + d.usuarios_originaron, 0);
             const origVTAAnt = datosAnterior.reduce((s, d) => s + d.usuarios_originaron_vta, 0);
+            const montoTotalAnt = datosAnterior.reduce((s, d) => s + d.monto_originado_total, 0);
+            const montoVTAAnt = datosAnterior.reduce((s, d) => s + d.monto_originado_vta, 0);
 
             const cobertura = base > 0 ? (gestionados * 100 / base).toFixed(2) : 0;
             const pctCPC = base > 0 ? (cpc * 100 / base).toFixed(2) : 0;
@@ -1204,6 +1206,7 @@ html_content = f"""
             const pctCPCAnt = baseAnt > 0 ? (cpcAnt * 100 / baseAnt).toFixed(2) : 0;
             const pctCltOrigAnt = baseAnt > 0 ? (originaronAnt * 100 / baseAnt).toFixed(2) : 0;
             const pctCltVTAAnt = baseAnt > 0 ? (origVTAAnt * 100 / baseAnt).toFixed(2) : 0;
+            const montoAtribuidoAnt = montoTotalAnt > 0 ? (montoVTAAnt * 100 / montoTotalAnt).toFixed(2) : 0;
 
             function calcVar(actual, anterior) {{
                 if (anterior === 0) return {{ diff: 0, pct: 0, clase: 'neutral' }};
@@ -1218,6 +1221,7 @@ html_content = f"""
             const varCPC = calcVar(parseFloat(pctCPC), parseFloat(pctCPCAnt));
             const varCltOrig = calcVar(parseFloat(pctCltOrig), parseFloat(pctCltOrigAnt));
             const varCltVTA = calcVar(parseFloat(pctCltVTA), parseFloat(pctCltVTAAnt));
+            const varMontoAtribuido = calcVar(parseFloat(montoAtribuido), parseFloat(montoAtribuidoAnt));
 
             document.getElementById('kpisContainer').innerHTML = `
                 <div class="kpi-card success">
@@ -1270,6 +1274,7 @@ html_content = f"""
                     <div class="kpi-label">Monto Atribuido VTA <span class="kpi-info-icon">i</span></div>
                     <div class="kpi-value">${{montoAtribuido}}%</div>
                     <div class="kpi-subtitle">$$${{(montoVTA/1000000).toFixed(1)}}M de $$${{(montoTotal/1000000).toFixed(1)}}M</div>
+                    ${{periodoAnterior ? `<div class="kpi-variation ${{varMontoAtribuido.clase}}">${{varMontoAtribuido.diff}} pp (${{varMontoAtribuido.pct}}%) vs mes anterior</div>` : ''}}
                     <div class="kpi-formula">= (MONTO_ORIGINADO_USUARIO_VTA / MONTO_TOTAL_ORIGINADO) × 100</div>
                 </div>
             `;
@@ -2117,6 +2122,8 @@ html_content = f"""
                 const gestionadosAnt = datosAnterior.reduce((s, d) => s + d.clientes_con_gestion, 0);
                 const cpcAnt = datosAnterior.reduce((s, d) => s + d.clientes_con_cpc, 0);
                 const originaronAnt = datosAnterior.reduce((s, d) => s + d.usuarios_originaron, 0);
+                const montoTotalAnt = datosAnterior.reduce((s, d) => s + d.monto_originado_total, 0);
+                const montoVTAAnt = datosAnterior.reduce((s, d) => s + d.monto_originado_vta, 0);
 
                 const cobertura = base > 0 ? (gestionados * 100 / base).toFixed(2) : 0;
                 const pctCPC = base > 0 ? (cpc * 100 / base).toFixed(2) : 0;
@@ -2129,6 +2136,7 @@ html_content = f"""
                 const coberturaAnt = baseAnt > 0 ? (gestionadosAnt * 100 / baseAnt).toFixed(2) : 0;
                 const pctCPCAnt = baseAnt > 0 ? (cpcAnt * 100 / baseAnt).toFixed(2) : 0;
                 const pctCltOrigAnt = baseAnt > 0 ? (originaronAnt * 100 / baseAnt).toFixed(2) : 0;
+                const montoAtribuidoAnt = montoTotalAnt > 0 ? (montoVTAAnt * 100 / montoTotalAnt).toFixed(2) : 0;
 
                 const varCobertura = cobertura && coberturaAnt ? {{
                     diff: (cobertura - coberturaAnt).toFixed(2),
@@ -2146,6 +2154,12 @@ html_content = f"""
                     diff: (pctCltOrig - pctCltOrigAnt).toFixed(2),
                     pct: pctCltOrigAnt > 0 ? (((pctCltOrig - pctCltOrigAnt) / pctCltOrigAnt) * 100).toFixed(1) : 0,
                     clase: (pctCltOrig - pctCltOrigAnt) >= 0 ? 'positive' : 'negative'
+                }} : null;
+
+                const varMontoAtribuido = montoAtribuido && montoAtribuidoAnt ? {{
+                    diff: (montoAtribuido - montoAtribuidoAnt).toFixed(2),
+                    pct: montoAtribuidoAnt > 0 ? (((montoAtribuido - montoAtribuidoAnt) / montoAtribuidoAnt) * 100).toFixed(1) : 0,
+                    clase: (montoAtribuido - montoAtribuidoAnt) >= 0 ? 'positive' : 'negative'
                 }} : null;
 
                 document.getElementById('kpisContainerMerchant').innerHTML = `
@@ -2191,6 +2205,7 @@ html_content = f"""
                         <div class="kpi-label">% Monto Atribuido VTA</div>
                         <div class="kpi-value">${{montoAtribuido}}%</div>
                         <div class="kpi-subtitle">$$${{(montoVTA/1000000).toFixed(1)}}M de $$${{(montoTotal/1000000).toFixed(1)}}M</div>
+                        ${{varMontoAtribuido && periodoAnterior ? `<div class="kpi-variation ${{varMontoAtribuido.clase}}">${{varMontoAtribuido.diff}} pp (${{varMontoAtribuido.pct}}%) vs mes anterior</div>` : ''}}
                     </div>
                 `;
             }}
